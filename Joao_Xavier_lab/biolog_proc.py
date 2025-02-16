@@ -9,7 +9,7 @@ from datetime import datetime
 import os
 import re
 from scipy.integrate import simpson # type: ignore
-from scipy.stats import ttest_rel # type: ignore
+from scipy.stats import ttest_rel, linregress # type: ignore
 import random
 random.seed(42)
 from scipy.optimize import curve_fit # type: ignore
@@ -106,30 +106,61 @@ def read_input_data(folder_path):
     # read data into pandaframes
     all_data_frames = []
     for file_path in all_file_paths:
-        sheet_names = pd.ExcelFile(file_path).sheet_names
+        try:
+            sheet_names = pd.ExcelFile(file_path).sheet_names
+        except:
+            raise Exception("Close all Excel sheets and try again.")
+
         for sheet_name in sheet_names:
             # read file
             df = pd.read_excel(file_path, header=None, sheet_name=sheet_name)
 
-            # find the start and end row of biolog data
-            start_row = df[df[0] == 600].index[0] + 2
-            end_row = df[df[0] == 'Results'].index[0] -2
+            # the start row is the first row with keyword Cycle Nr.
+            # the end row is the first full blank row after the start row
+            if "Cycle Nr." in list(df[0]):
+                start_row = df[df[0] == "Cycle Nr."].index[0]
+                df_blank_rows = df[df.isna().all(axis=1)]
+                end_row = df.index[-1]
+                for idx in df_blank_rows.index:
+                    if idx >= start_row:
+                        end_row = idx
+                        break
+                df = df.iloc[start_row:end_row+1, 1:].drop(2, axis=1).set_index(1)
+            elif "Time" in list(df[0]):
+                start_row = df[df[0] == "Time"].index[0]
+                df_blank_rows = df[df.isna().all(axis=1)]
+                end_row = df.index[-1]
+                for idx in df_blank_rows.index:
+                    if idx >= start_row:
+                        end_row = idx
+                        break
+                df = df.iloc[start_row:end_row+1, :].drop(1, axis=1).set_index(0)
+            else:
+                raise Exception("The data block must begin with 'Cycle Nr.' or 'Time'. Check data in sheet %s from file %s."%(sheet_name, file_path))
 
-            # get biolog data
-            df = df.iloc[start_row:end_row+1, 1:].drop(2, axis=1).set_index(1)
+            # use the first row as header
             df.columns = df.iloc[0]
             df = df[1:]
+            df = df.dropna(how='all')
 
             # rename time
-            datetime1 = datetime.combine(datetime.min, df.index[1])
-            datetime2 = datetime.combine(datetime.min, df.index[0])
-            delta_t = (datetime1 - datetime2).total_seconds()/3600
-            df = df.rename({df.index[i]:i*delta_t for i in range(len(df))})
+            baseline_time = df.index[0]
+            if isinstance(baseline_time, (int, np.int64, float)):
+                # by default the unit is second
+                df = df.rename({df.index[i]:float(df.index[i]-baseline_time)/3600.0 for i in range(len(df))})
+            elif isinstance(baseline_time, str) and bool(re.fullmatch(r"\d+s", baseline_time)):
+                # the unit is specified as second
+                df = df.rename({idx:int(idx.replace("s","")) for idx in df.index})
+                baseline_time = df.index[0]
+                df = df.rename({df.index[i]:float(df.index[i]-baseline_time)/3600.0 for i in range(len(df))})
+            else:
+                raise Exception("The time unit cannot be parsed. Check data in sheet %s from file %s."%(sheet_name, file_path))
             df.index.name = None
 
             # unstack data frame
             df = df.stack().reset_index()
             df.columns = ['Time','Well','OD']
+            df = df[df.OD.notnull()]
 
             # append metadata
             plate = sheet_name.split('_')[0]
@@ -148,7 +179,7 @@ def read_input_data(folder_path):
     # add metabolite name
     biolog_info = []
     for plate in set(df_merged.Plate):
-        df_plate = pd.read_csv("biolog_plate_info/%s_info.csv"%plate)
+        df_plate = pd.read_csv("../biolog_plate_info/%s_info.csv"%plate)
         biolog_info.append(df_plate)
     df_biolog_info = pd.concat(biolog_info)
     df_merged = pd.merge(
@@ -169,18 +200,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="command-line argument parser")
 
     # add arguments
-    parser.add_argument('--input_path', type=str, default="input_data_folder", help='Path to the folder containing the input BIOLOG Excel files')
+    parser.add_argument('--input_path', type=str, default="input_data", help='Path to the folder containing the input BIOLOG Excel files')
     parser.add_argument('--growth_model', type=str, default='Logistic', choices=['Logistic', 'Gompertz'], help='Choose between Logistic and Gompertz for modeling growth curve')
     parser.add_argument('--min_r2', type=float_in_range(0.0, 1.0), default=0.90, help='Minimum R2 for growth curve model fitting')
     parser.add_argument('--max_trials', type=integer_in_range(1, 10000), default=50, help='Maximum number of trial attempts of initial guesses for growth curve model fitting')
     parser.add_argument('--fc_cutoff', type=float_in_range(1.0, np.inf), default=1.2, help='Minimum mean fold change for positive growth phenotype')
     parser.add_argument('--pvalue_cutoff', type=float_in_range(0.0, 1.0), default=0.05, help='Maximum P-value for positive growth phenotype')
+    parser.add_argument('--output_file_prefix', type=str, default="output", help='Prefix of output file name')
 
     # parse the arguments
     args = parser.parse_args()
 
     # read input files
     df_input = read_input_data(args.input_path)
+    df_input.Time = df_input.Time.astype(float)
+    df_input.OD = df_input.OD.astype(float)
 
     # processing results are stored in res
     all_res = []
@@ -192,9 +226,8 @@ if __name__ == "__main__":
         for plate in all_plates:
             # determine end time point as the last common time point across replicates
             df_A1 = df_input[(df_input.Strain==strain) & (df_input.Plate==plate) & (df_input.Well=='A1')] # negative control well
-            n_reps = len(set(df_A1.Replicate))
-            occurrence = df_A1['Time'].value_counts() # for each time point, count its number of occurrence in replicates
-            last_common_time = max(occurrence[occurrence==n_reps].index) # find the latest time point that occurs in all replicates
+            df_A1_endpoints = df_A1.groupby('Replicate')['Time'].max().reset_index()
+            last_common_time = df_A1_endpoints.Time.min()
 
             # analyze growth curve for each well
             neg_ctr_final_od = None # OD at the last time point
@@ -205,10 +238,20 @@ if __name__ == "__main__":
             all_wells = sorted(all_wells, key=custom_sort_key) # make sure that wells are processed from A to H and 1 to 12 in order
             # print(all_wells)
             for well in all_wells:
-                df_well = df_input[(df_input.Strain==strain) & (df_input.Plate==plate) & (df_input.Well==well) & (df_input.Time <= last_common_time)]
-                df_well = df_well.sort_values(['Replicate', 'Time'])
-                all_replicates = list(df_well.drop_duplicates('Replicate').sort_values('Replicate').Replicate)
+                df_well = df_input[(df_input.Strain==strain) & (df_input.Plate==plate) & (df_input.Well==well)]
                 metabolite = df_well.Metabolite.values[0]
+                all_replicates = list(df_well.drop_duplicates('Replicate').sort_values('Replicate').Replicate)
+
+                # For each replicate, if last_common_time is not in the data, add this time point with interpolation
+                for rep in all_replicates:
+                    df_well_rep = df_well[df_well.Replicate==rep]
+                    if last_common_time not in list(df_well_rep.Time):
+                        od_at_last_common_time = np.interp(last_common_time, df_well_rep['Time'].to_numpy(), df_well_rep['OD'].to_numpy())
+                        new_row_df = pd.DataFrame({'Strain': [strain], 'Plate': [plate], 'Replicate': [rep], 'Well': [well], 'Metabolite':[metabolite], 'Time': [last_common_time], 'OD': [od_at_last_common_time]})
+                        df_well = pd.concat([df_well, new_row_df], ignore_index=True)
+
+                # remove time points after last_common_time
+                df_well = df_well[df_well.Time <= last_common_time].sort_values(['Replicate', 'Time'])
                 curr_well_res = [strain, plate, well, metabolite, last_common_time]
 
                 #-------------------
@@ -268,7 +311,11 @@ if __name__ == "__main__":
                     if n < args.max_trials:
                         curr_well_sgr_list.append(optp[2]) # A, lag, mu
                     else:
-                        curr_well_sgr_list.append(np.nan)
+                        # use the simplest model instead
+                        slope, _, _, _, _ = linregress(xdata, log_rely)
+                        if slope < 0.0:
+                            slope = 0.001
+                        curr_well_sgr_list.append(slope)
                     curr_well_r2_list.append(max_r2)
 
                 curr_well_sgr = np.array(curr_well_sgr_list)
@@ -323,7 +370,7 @@ if __name__ == "__main__":
     # compare growth status between strains
     df_sum = df_all_res.copy()
     df_sum = df_sum[['Strain','Plate','Metabolite','GrowthStatus']]
-    df_sum = pd.pivot_table(df_sum, index=['Plate','Metabolite'], columns='Strain', values='GrowthStatus', aggfunc=longest_string).fillna('-')
+    df_sum = pd.pivot_table(df_sum, index=['Plate','Metabolite'], columns='Strain', values='GrowthStatus', aggfunc=longest_string).fillna('---')
     df_sum = df_sum[~(df_sum == '---').all(axis=1)]
     all_strains = list(df_sum.columns)
     for strain in all_strains:
@@ -334,7 +381,7 @@ if __name__ == "__main__":
 
     # save to excel file
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    with pd.ExcelWriter(f"output_{timestamp}.xlsx", engine='openpyxl') as writer:
+    with pd.ExcelWriter(f"%s.{timestamp}.xlsx"%(args.output_file_prefix), engine='openpyxl') as writer:
         df_all_res.to_excel(writer, sheet_name='All', index=False)
         df_sum.to_excel(writer, sheet_name='Summary', index=False)
 
