@@ -54,7 +54,7 @@ For Richard Bennett lab members, run the following command:
 __Note: You can specify multiple arguments the same time. For example, if you want use non-default values for both `fc_cutoff` and `pvalue_cutoff`, run the following command: `python3 biolog_proc.py --fc_cutoff 1.5 --pvalue_cutoff 0.01`.__
 
 # Ouput Formats
-The script outputs a single Excel file named `[output_file_prefix].%Y%m%d_%H%M%S.xlsx` (%Y: year, %m: month, %d: day, %H: hour, %M: minute, %S: second). When running the script, you can specify the prefix of output file name using the `--output_file_perfix' argument. Typically, the output file contains three sheets: `Full_report`, `Comparison_growth_quali`, and `Comparison_growth_quant`.
+The script outputs a single Excel file named `[output_file_prefix].%Y%m%d_%H%M%S.xlsx` (%Y: year, %m: month, %d: day, %H: hour, %M: minute, %S: second). When running the script, you can specify the prefix of output file name using the `--output_file_perfix` argument. Typically, the output file contains three sheets: `Full_report`, `Comparison_growth_quali`, and `Comparison_growth_quant`.
 
 The `Full_report` sheet includes the following columns:
 - Strain: Name of the strain
