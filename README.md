@@ -14,7 +14,7 @@ __Python3 (or Python3.x) biolog_proc.py [optional arguments]__
 `[optional_arguments]` indicates that you can use the script's default settings without providing any arguments. So the simplest command would be `Python3 (or Python3.x) biolog_proc.py`.
 
 # Optional Arguments
-`--input_path`: Specifies the path to the folder containing the input Biolog data. The default path is `input_data_folder`.
+`--input_path`: Specifies the path to the folder containing the input BIOLOG data. The default path is `input_data_folder`.
 To use a different folder, such as `/Users/chenliao/Desktop/BIOLOG`, run the following command:
 `python3 biolog_proc.py --input_path /Users/chenliao/Desktop/BIOLOG`
 
