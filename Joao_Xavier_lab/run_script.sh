@@ -1,1 +1,0 @@
-python3 biolog_proc.py --input_path input_data_folder

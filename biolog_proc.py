@@ -9,7 +9,7 @@ from datetime import datetime
 import os
 import re
 from scipy.integrate import simpson # type: ignore
-from scipy.stats import ttest_rel, linregress # type: ignore
+from scipy.stats import ttest_ind, ttest_rel, linregress # type: ignore
 import random
 random.seed(42)
 from scipy.optimize import curve_fit # type: ignore
@@ -93,12 +93,78 @@ def fit_model_parameters(xdata, ydata, model):
     except:
         return False, [np.nan] * len(init_guess), np.nan
 
-# read input files
-def read_input_data(folder_path):
+#   read OD measurements from a specific Excel sheet
+def read_OD_measurement(file_path, sheet_name, which_lab):
+    df = pd.read_excel(file_path, header=None, sheet_name=sheet_name)
+    if which_lab == 'Joao_Xavier_MSKCC':
+        # the start row is the first row with keyword Cycle Nr.
+        # the end row is the first full blank row after the start row
+        if "Cycle Nr." in list(df[0]):
+            start_row = df[df[0] == "Cycle Nr."].index[0]
+            df_blank_rows = df[df.isna().all(axis=1)]
+            end_row = df.index[-1]
+            for idx in df_blank_rows.index:
+                if idx >= start_row:
+                    end_row = idx
+                    break
+            df = df.iloc[start_row:end_row+1, 1:].drop(2, axis=1).set_index(1)
+        elif "Time" in list(df[0]):
+            start_row = df[df[0] == "Time"].index[0]
+            df_blank_rows = df[df.isna().all(axis=1)]
+            end_row = df.index[-1]
+            for idx in df_blank_rows.index:
+                if idx >= start_row:
+                    end_row = idx
+                    break
+            df = df.iloc[start_row:end_row+1, :].drop(1, axis=1).set_index(0)
+        else:
+            raise Exception("The data block must begin with 'Cycle Nr.' or 'Time'. Check data in sheet %s from file %s."%(sheet_name, file_path))
+
+        # use the first row as header
+        df.columns = df.iloc[0]
+        df = df[1:]
+        df = df.dropna(how='all')
+
+        # rename time
+        baseline_time = df.index[0]
+        if isinstance(baseline_time, (int, np.int64, float)):
+            # by default the unit is second
+            df = df.rename({df.index[i]:float(df.index[i]-baseline_time)/3600.0 for i in range(len(df))})
+        elif isinstance(baseline_time, str) and bool(re.fullmatch(r"\d+s", baseline_time)):
+            # the unit is specified as second
+            df = df.rename({idx:int(idx.replace("s","")) for idx in df.index})
+            baseline_time = df.index[0]
+            df = df.rename({df.index[i]:float(df.index[i]-baseline_time)/3600.0 for i in range(len(df))})
+        else:
+            raise Exception("The time unit cannot be parsed. Check data in sheet %s from file %s."%(sheet_name, file_path))
+        df.index.name = None
+    elif which_lab == 'Richard_Bennett_Brown':
+        # find the start and end row of biolog data
+        start_row = df[df[0] == 600].index[0] + 2
+        end_row = df[df[0] == 'Results'].index[0] -2
+
+        # get biolog data
+        df = df.iloc[start_row:end_row+1, 1:].drop(2, axis=1).set_index(1)
+        df.columns = df.iloc[0]
+        df = df[1:]
+
+        # rename time
+        datetime1 = datetime.combine(datetime.min, df.index[1])
+        datetime2 = datetime.combine(datetime.min, df.index[0])
+        delta_t = (datetime1 - datetime2).total_seconds()/3600
+        df = df.rename({df.index[i]:i*delta_t for i in range(len(df))})
+        df.index.name = None
+    else:
+        raise Exception("Unrecognized lab format. Please contact Chen Liao for support.")
+
+    return df
+
+#   load OD measurements from all Excel files and sheets in a given folder
+def load_all_OD_measurements(folder_path, which_lab):
 
     # get all excel files
     all_file_paths = []
-    for root, dirs, files in os.walk(folder_path):
+    for root, _, files in os.walk(folder_path):
         for file in files:
             if file.endswith('.xlsx'):
                 all_file_paths.append(os.path.join(root, file))
@@ -112,50 +178,8 @@ def read_input_data(folder_path):
             raise Exception("Close all Excel sheets and try again.")
 
         for sheet_name in sheet_names:
-            # read file
-            df = pd.read_excel(file_path, header=None, sheet_name=sheet_name)
-
-            # the start row is the first row with keyword Cycle Nr.
-            # the end row is the first full blank row after the start row
-            if "Cycle Nr." in list(df[0]):
-                start_row = df[df[0] == "Cycle Nr."].index[0]
-                df_blank_rows = df[df.isna().all(axis=1)]
-                end_row = df.index[-1]
-                for idx in df_blank_rows.index:
-                    if idx >= start_row:
-                        end_row = idx
-                        break
-                df = df.iloc[start_row:end_row+1, 1:].drop(2, axis=1).set_index(1)
-            elif "Time" in list(df[0]):
-                start_row = df[df[0] == "Time"].index[0]
-                df_blank_rows = df[df.isna().all(axis=1)]
-                end_row = df.index[-1]
-                for idx in df_blank_rows.index:
-                    if idx >= start_row:
-                        end_row = idx
-                        break
-                df = df.iloc[start_row:end_row+1, :].drop(1, axis=1).set_index(0)
-            else:
-                raise Exception("The data block must begin with 'Cycle Nr.' or 'Time'. Check data in sheet %s from file %s."%(sheet_name, file_path))
-
-            # use the first row as header
-            df.columns = df.iloc[0]
-            df = df[1:]
-            df = df.dropna(how='all')
-
-            # rename time
-            baseline_time = df.index[0]
-            if isinstance(baseline_time, (int, np.int64, float)):
-                # by default the unit is second
-                df = df.rename({df.index[i]:float(df.index[i]-baseline_time)/3600.0 for i in range(len(df))})
-            elif isinstance(baseline_time, str) and bool(re.fullmatch(r"\d+s", baseline_time)):
-                # the unit is specified as second
-                df = df.rename({idx:int(idx.replace("s","")) for idx in df.index})
-                baseline_time = df.index[0]
-                df = df.rename({df.index[i]:float(df.index[i]-baseline_time)/3600.0 for i in range(len(df))})
-            else:
-                raise Exception("The time unit cannot be parsed. Check data in sheet %s from file %s."%(sheet_name, file_path))
-            df.index.name = None
+            # read specific excel sheet
+            df = read_OD_measurement(file_path, sheet_name, which_lab)
 
             # unstack data frame
             df = df.stack().reset_index()
@@ -179,7 +203,7 @@ def read_input_data(folder_path):
     # add metabolite name
     biolog_info = []
     for plate in set(df_merged.Plate):
-        df_plate = pd.read_csv("../biolog_plate_info/%s_info.csv"%plate)
+        df_plate = pd.read_csv("biolog_plate_info/%s_info.csv"%plate)
         biolog_info.append(df_plate)
     df_biolog_info = pd.concat(biolog_info)
     df_merged = pd.merge(
@@ -207,12 +231,14 @@ if __name__ == "__main__":
     parser.add_argument('--fc_cutoff', type=float_in_range(1.0, np.inf), default=1.2, help='Minimum mean fold change for positive growth phenotype')
     parser.add_argument('--pvalue_cutoff', type=float_in_range(0.0, 1.0), default=0.05, help='Maximum P-value for positive growth phenotype')
     parser.add_argument('--output_file_prefix', type=str, default="output", help='Prefix of output file name')
+    parser.add_argument('--reference_strain', type=str, default="", help='Reference strain to which all other strains are compared against')
+    parser.add_argument('--which_lab', type=str, default="Joao_Xaviver_MSKCC", help='The laboratory where OD data was measured')
 
     # parse the arguments
     args = parser.parse_args()
 
     # read input files
-    df_input = read_input_data(args.input_path)
+    df_input = load_all_OD_measurements(args.input_path, args.which_lab)
     df_input.Time = df_input.Time.astype(float)
     df_input.OD = df_input.OD.astype(float)
 
@@ -266,7 +292,7 @@ if __name__ == "__main__":
                 else:
                     fold_change_final_od = curr_well_final_od/neg_ctr_final_od
                     pvalue_final_od = ttest_rel(curr_well_final_od, neg_ctr_final_od, alternative='greater')[1]
-                curr_well_res.extend([";".join(map(str, curr_well_final_od)), np.mean(curr_well_final_od), np.mean(fold_change_final_od), np.round(pvalue_final_od, 6)])
+                curr_well_res.extend([",".join(map(str, curr_well_final_od)), np.mean(curr_well_final_od), np.mean(fold_change_final_od), np.round(pvalue_final_od, 6)])
 
                 #---------------------
                 # area under the curve
@@ -286,7 +312,7 @@ if __name__ == "__main__":
                 else:
                     fold_change_auc = curr_well_auc/neg_ctr_auc
                     pvalue_auc = ttest_rel(curr_well_auc, neg_ctr_auc, alternative='greater')[1]
-                curr_well_res.extend([";".join(map(str, curr_well_auc)), np.mean(curr_well_auc), np.mean(fold_change_auc), np.round(pvalue_auc, 6)])
+                curr_well_res.extend([",".join(map(str, curr_well_auc)), np.mean(curr_well_auc), np.mean(fold_change_auc), np.round(pvalue_auc, 6)])
 
                 #---------------------------
                 # growth curve model fitting
@@ -310,13 +336,15 @@ if __name__ == "__main__":
                         n += 1
                     if n < args.max_trials:
                         curr_well_sgr_list.append(optp[2]) # A, lag, mu
+                        curr_well_r2_list.append(max_r2)
                     else:
                         # use the simplest model instead
-                        slope, _, _, _, _ = linregress(xdata, log_rely)
+                        slope, _, rvalue, _, _ = linregress(xdata, log_rely)
                         if slope < 0.0:
                             slope = 0.001
+                            rvalue = np.nan
                         curr_well_sgr_list.append(slope)
-                    curr_well_r2_list.append(max_r2)
+                        curr_well_r2_list.append(rvalue ** 2)
 
                 curr_well_sgr = np.array(curr_well_sgr_list)
                 curr_well_sgr = np.round(curr_well_sgr.astype(float), 3)
@@ -333,14 +361,16 @@ if __name__ == "__main__":
                     filtered_curr_well_sgr = curr_well_sgr[non_nan_indices]
                     filtered_neg_ctr_sgr = neg_ctr_sgr[non_nan_indices]
                     pvalue_sgr = ttest_rel(filtered_curr_well_sgr, filtered_neg_ctr_sgr, alternative='greater')[1]
-                curr_well_res.extend([";".join(map(str, curr_well_r2)), ";".join(map(str, curr_well_sgr)), np.nanmean(curr_well_sgr), np.nanmean(fold_change_sgr), np.round(pvalue_sgr, 6)])
+                curr_well_res.extend([",".join(map(str, curr_well_r2)), ",".join(map(str, curr_well_sgr)), np.nanmean(curr_well_sgr), np.nanmean(fold_change_sgr), np.round(pvalue_sgr, 6)])
 
                 #-------------
                 # save results
                 #-------------
                 all_res.append(curr_well_res)
 
-    # generate summary in a dataframe
+    #-----------------------------------
+    # generate a detailed summary report
+    #-----------------------------------
     df_all_res = pd.DataFrame(all_res,
                               columns=['Strain','Plate','Well','Metabolite','LastCommonTime',
                                        'EOD','EOD_Mean','EOD_MeanFC','EOD_Pvalue',
@@ -348,7 +378,7 @@ if __name__ == "__main__":
                                        'CurveFit_R2', 'SGR','SGR_Mean','SGR_MeanFC','SGR_Pvalue'
                                        ])
 
-    # determine growth based on cutoffs
+    # determine growth status based on fold change and pvalue cutoffs
     growth_status = []
     for fod_fc, fod_pv, auc_fc, auc_pv, sgr_fc, sgr_pv in zip(df_all_res.EOD_MeanFC, df_all_res.EOD_Pvalue, df_all_res.AUC_MeanFC, df_all_res.AUC_Pvalue, df_all_res.SGR_MeanFC, df_all_res.SGR_Pvalue):
         status_str = ''
@@ -367,21 +397,64 @@ if __name__ == "__main__":
         growth_status.append(status_str)
     df_all_res['GrowthStatus'] = growth_status
 
-    # compare growth status between strains
-    df_sum = df_all_res.copy()
-    df_sum = df_sum[['Strain','Plate','Metabolite','GrowthStatus']]
-    df_sum = pd.pivot_table(df_sum, index=['Plate','Metabolite'], columns='Strain', values='GrowthStatus', aggfunc=longest_string).fillna('---')
-    df_sum = df_sum[~(df_sum == '---').all(axis=1)]
-    all_strains = list(df_sum.columns)
+    #-------------------------------------------------
+    # Compare qualitative growth status across strains
+    #-------------------------------------------------
+    df_gs = df_all_res.copy()
+    df_gs = df_gs[['Strain','Plate','Metabolite','GrowthStatus']]
+    df_gs = pd.pivot_table(df_gs, index=['Plate','Metabolite'], columns='Strain', values='GrowthStatus', aggfunc=longest_string).fillna('---')
+    df_gs = df_gs[~(df_gs == '---').all(axis=1)]
+    all_strains = list(df_gs.columns)
     for strain in all_strains:
-        df_sum[strain + '_EOD'] = [status[0] for status in df_sum[strain]]
-        df_sum[strain + '_AUC'] = [status[1] for status in df_sum[strain]]
-        df_sum[strain + '_SGR'] = [status[2] for status in df_sum[strain]]
-    df_sum = df_sum.reset_index().drop(all_strains, axis=1)
+        df_gs[strain + '_EOD'] = [status[0] for status in df_gs[strain]]
+        df_gs[strain + '_AUC'] = [status[1] for status in df_gs[strain]]
+        df_gs[strain + '_SGR'] = [status[2] for status in df_gs[strain]]
+    df_gs = df_gs.reset_index().drop(all_strains, axis=1)
 
+    #---------------------------------------------------
+    # Compare quantitative growth metrics across strains
+    #---------------------------------------------------
+    if args.reference_strain is not None:
+        res_stats = []
+        for metric in ['EOD', 'AUC', 'SGR']:
+            df_metric = df_all_res.copy()
+            df_metric = df_metric[['Strain','Plate','Metabolite'] + [metric]]
+            df_metric = pd.pivot_table(df_metric, index=['Plate','Metabolite'], columns='Strain', values=metric, aggfunc='first').fillna('')
+
+            all_strains = list(df_metric.columns)
+            if args.reference_strain not in all_strains:
+                continue
+
+            for idx in df_metric.index:
+                ref_strain_values = df_metric.loc[idx, args.reference_strain]
+                if ref_strain_values != '':
+                    ref_strain_values = eval(df_metric.loc[idx, args.reference_strain])
+                    for curr_strain in all_strains:
+                        if curr_strain != args.reference_strain:
+                            curr_strain_values = df_metric.loc[idx, curr_strain]
+                            if curr_strain_values != '':
+                                curr_strain_values = eval(df_metric.loc[idx, curr_strain])
+
+                                # compare current strain values against reference strain values
+                                fold_change = np.mean(curr_strain_values) / np.mean(ref_strain_values)
+                                ttest_pvalue = ttest_ind(curr_strain_values, ref_strain_values, equal_var=False, alternative='greater')[1] # Welch's t-test
+                                res_stats.append([
+                                    idx[0],        # plate
+                                    idx[1],        # metabolite
+                                    curr_strain,   # strain
+                                    metric,        # metric
+                                    fold_change,   # fold change
+                                    ttest_pvalue   # pvalue
+                                ])
+        df_stats = pd.DataFrame(res_stats, columns = ["Plate","Metabolite","Strain","Metric","FoldChange","Pvalue"])
+
+    #-------------------
     # save to excel file
+    #-------------------
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     with pd.ExcelWriter(f"%s.{timestamp}.xlsx"%(args.output_file_prefix), engine='openpyxl') as writer:
-        df_all_res.to_excel(writer, sheet_name='All', index=False)
-        df_sum.to_excel(writer, sheet_name='Summary', index=False)
+        df_all_res.to_excel(writer, sheet_name='Full_report', index=False)
+        df_gs.to_excel(writer, sheet_name='Comparison_growth_quali', index=False)
+        if len(df_stats) > 0:
+            df_stats.to_excel(writer, sheet_name='Comparison_growth_quant', index=False)
 
