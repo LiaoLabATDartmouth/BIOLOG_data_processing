@@ -231,7 +231,7 @@ if __name__ == "__main__":
     parser.add_argument('--fc_cutoff', type=float_in_range(1.0, np.inf), default=1.2, help='Minimum mean fold change for positive growth phenotype')
     parser.add_argument('--pvalue_cutoff', type=float_in_range(0.0, 1.0), default=0.05, help='Maximum P-value for positive growth phenotype')
     parser.add_argument('--output_file_prefix', type=str, default="output", help='Prefix of output file name')
-    parser.add_argument('--reference_strain', type=str, default="", help='Reference strain to which all other strains are compared against')
+    parser.add_argument('--reference_strain', type=str, default=None, help='Reference strain to which all other strains are compared against')
     parser.add_argument('--which_lab', type=str, default="Joao_Xaviver_MSKCC", help='The laboratory where OD data was measured')
 
     # parse the arguments
@@ -408,53 +408,4 @@ if __name__ == "__main__":
     for strain in all_strains:
         df_gs[strain + '_EOD'] = [status[0] for status in df_gs[strain]]
         df_gs[strain + '_AUC'] = [status[1] for status in df_gs[strain]]
-        df_gs[strain + '_SGR'] = [status[2] for status in df_gs[strain]]
-    df_gs = df_gs.reset_index().drop(all_strains, axis=1)
-
-    #---------------------------------------------------
-    # Compare quantitative growth metrics across strains
-    #---------------------------------------------------
-    if args.reference_strain is not None:
-        res_stats = []
-        for metric in ['EOD', 'AUC', 'SGR']:
-            df_metric = df_all_res.copy()
-            df_metric = df_metric[['Strain','Plate','Metabolite'] + [metric]]
-            df_metric = pd.pivot_table(df_metric, index=['Plate','Metabolite'], columns='Strain', values=metric, aggfunc='first').fillna('')
-
-            all_strains = list(df_metric.columns)
-            if args.reference_strain not in all_strains:
-                continue
-
-            for idx in df_metric.index:
-                ref_strain_values = df_metric.loc[idx, args.reference_strain]
-                if ref_strain_values != '':
-                    ref_strain_values = eval(df_metric.loc[idx, args.reference_strain])
-                    for curr_strain in all_strains:
-                        if curr_strain != args.reference_strain:
-                            curr_strain_values = df_metric.loc[idx, curr_strain]
-                            if curr_strain_values != '':
-                                curr_strain_values = eval(df_metric.loc[idx, curr_strain])
-
-                                # compare current strain values against reference strain values
-                                fold_change = np.mean(curr_strain_values) / np.mean(ref_strain_values)
-                                ttest_pvalue = ttest_ind(curr_strain_values, ref_strain_values, equal_var=False, alternative='greater')[1] # Welch's t-test
-                                res_stats.append([
-                                    idx[0],        # plate
-                                    idx[1],        # metabolite
-                                    curr_strain,   # strain
-                                    metric,        # metric
-                                    fold_change,   # fold change
-                                    ttest_pvalue   # pvalue
-                                ])
-        df_stats = pd.DataFrame(res_stats, columns = ["Plate","Metabolite","Strain","Metric","FoldChange","Pvalue"])
-
-    #-------------------
-    # save to excel file
-    #-------------------
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    with pd.ExcelWriter(f"%s.{timestamp}.xlsx"%(args.output_file_prefix), engine='openpyxl') as writer:
-        df_all_res.to_excel(writer, sheet_name='Full_report', index=False)
-        df_gs.to_excel(writer, sheet_name='Comparison_growth_quali', index=False)
-        if len(df_stats) > 0:
-            df_stats.to_excel(writer, sheet_name='Comparison_growth_quant', index=False)
-
+        df_
