@@ -169,6 +169,9 @@ def load_all_OD_measurements(folder_path, which_lab):
             if file.endswith('.xlsx'):
                 all_file_paths.append(os.path.join(root, file))
 
+    if len(all_file_paths) == 0:
+        raise Exception("No data files found in the folder %s. Please check the folder path and make sure it contains the expected files."%folder_path)
+
     # read data into pandaframes
     all_data_frames = []
     for file_path in all_file_paths:
@@ -447,6 +450,8 @@ if __name__ == "__main__":
                                     ttest_pvalue   # pvalue
                                 ])
         df_stats = pd.DataFrame(res_stats, columns = ["Plate","Metabolite","Strain","Metric","FoldChange","Pvalue"])
+    else:
+        df_stats = pd.DataFrame([], columns = ["Plate","Metabolite","Strain","Metric","FoldChange","Pvalue"])
 
     #-------------------
     # save to excel file
