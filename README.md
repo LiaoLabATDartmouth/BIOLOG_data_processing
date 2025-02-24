@@ -58,7 +58,7 @@ The script outputs a single Excel file named `[output_file_prefix].%Y%m%d_%H%M%S
 
 The `Full_report` sheet includes the following columns:
 - Strain: Name of the strain
-- Plate: Plate number (e.g., 'PM1', 'PM2A')
+- Plate: Plate number (e.g., PM1, PM2A)
 - Well: Well ID (e.g., A5, C3)
 - Metabolite: Name of the metabolite in the well
 - LastCommonTime: The common end time point (unit hour) across all replicates
@@ -70,7 +70,7 @@ The `Full_report` sheet includes the following columns:
 - AUC_Mean: AUC averaged across replicates
 - AUC_MeanFC: Ratio of AUC between the current well and the A1 well (negative control), averaged across replicates
 - AUC_Pvalue: Paired-sample t-test of AUC between the current well and the A1 well
-- CurveFit_R2: The R2 value between the observed OD and the best-fitting model. It is the first R2 value that exceeds `min_r2` among all initial guess trials. If all R2 values remain below `min_r2`, a linear regression model will be applied to reestimate the specific growth rate and its R2 value. If the estimated growth rate is negative, it will be set to 0.001, and the corresponding R2 value will be set to `nan`.
+- CurveFit_R2: The R² value between the observed OD and the best-fitting model. It is the first R² value that exceeds `min_r2` among all initial guess trials. If all R² values remain below `min_r2`, a linear regression model will be applied to reestimate the specific growth rate and its R² value. If the estimated growth rate is negative, it will be set to 0.001, and the corresponding R² value will be set to `nan`.
 - SGR: Specific growth rate (unit 1/hour) in each replicate (values separated by semicolons).
 - SGR_Mean: SGR averaged across replicates
 - SGR_MeanFC: Ratio of SGR between the current well and the A1 well (negative control), averaged across replicates
