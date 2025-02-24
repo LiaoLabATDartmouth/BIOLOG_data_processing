@@ -47,7 +47,7 @@ To specify a reference strain, run the following command:
 `python3 biolog_proc.py --reference_strain WT`
 
 `--which lab`: Specifies the laboratory where the OD measurements were performed. The default value is Joao_Xavier_MSKCC.
-__As the raw data format varies depending on the plate reader and its setup, this script is customized to read machine-output data specific to each laboratory. Currently, we support the Richard Bennett Lab (Richard_Bennett_Brown) and the Joao Xavier Lab (Joao_Xavier_MSKCC).__
+As the raw data format varies depending on the plate reader and its setup, this script is customized to read machine-output data specific to each laboratory. Currently, we support the Richard Bennett Lab (Richard_Bennett_Brown) and the Joao Xavier Lab (Joao_Xavier_MSKCC).
 For Richard Bennett lab members, run the following command:
 `python3 biolog_proc.py --which_lab Richard_Bennett_Brown`
 
