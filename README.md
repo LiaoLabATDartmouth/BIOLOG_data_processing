@@ -1,7 +1,5 @@
 # Overview
-The script, biolog_proc.py, processes raw BIOLOG data files to identify the metabolites that support the growth of specfic strains. I implemented three quantitative metrics for this assessment: (1) endpoint OD; (2) area under the growth curve; and (3) specific growth rate. The specific growth rate is calculated by fitting a Logistic or Gompertz growth model to the observed OD values (see Zwietering, M.H., Jongenburger, I., Rombouts, F.M. and Van't Riet, K.J.A.E.M., 1990. Modeling of the bacterial growth curve. Applied and environmental microbiology, 56(6), pp.1875-1881, for details on these models). Each metric is evaluated based on two criteria: the average fold change of the metric (compared to negative control) must be >= `fc_cutoff`, and the p-value (based on a paried-sample t-test) must be < `pvalue_cutoff`.
-
-__Since the raw BIOLOG data format varies depending on the plate reader and its setup, this script is customized to read machine-output data specific to each lab. Currently, we support the Richard Bennett Lab and the Joao Xavier Lab. Test examples for both labs are also provided.__
+The script, biolog_proc.py, processes BIOLOG OD measurements to identify the nutrients that support the growth of specfic strains. I implemented three quantitative metrics for this assessment: (1) endpoint OD; (2) area under the growth curve; and (3) specific growth rate. The specific growth rate is calculated by fitting a Logistic or Gompertz growth model to the observed OD values (see this [paper](https://journals.asm.org/doi/10.1128/aem.56.6.1875-1881.1990) for details on these models). Each metric is evaluated based on two criteria: the average fold change of the metric (compared to negative control) must be >= `fc_cutoff`, and the p-value (based on a paried-sample t-test) must be < `pvalue_cutoff`.
 
 # Installation
 No local installation is requierd, but you will need Python3 (https://www.python.org/downloads/) to run the script in the command line. The script has been tested on Python3.9 but should work with other Python3 versions. The command-line parsing library `argparse` is also required. It can be easily installed by running `pip3.x install argparse` where `3.x` corresponds to the Python version you use to run the script. For example, run `pip3.9 install argparse` if you use Python3.9.
@@ -40,12 +38,21 @@ To use a more stringent fold change cutoff, run the following command:
 To apply a more stringent p-value cutoff, run the following command:
 `python3 biolog_proc.py --pvalue_cutoff 0.01`
 
+`--reference_strain`: Specifies the reference strain to which all other strains are compared against. The default value is None.
+To specify reference strain, run the following command:
+`python3 biolog_proc.py --reference_strain WT`
+
+`--which lab`: Specifies the laboratory where the BIOLOG OD measurements were performed. The default value is Joao_Xavier_MSKCC.
+__As the raw data format varies depending on the plate reader and its setup, this script is customized to read machine-output data specific to each laboratory. Currently, we support the Richard Bennett Lab (Richard_Bennett_Brown) and the Joao Xavier Lab (Joao_Xavier_MSKCC).__
+For Richard Bennett lab members, run the following command:
+`python3 biolog_proc.py --which_lab Richard_Bennett_Brown`
+
 __Note: You can specify multiple arguments the same time. For example, if you want use non-default values for both `fc_cutoff` and `pvalue_cutoff`, run the following command: `python3 biolog_proc.py --fc_cutoff 1.5 --pvalue_cutoff 0.01`.__
 
 # Ouput Formats
 The script outputs a single Excel file named `output_%Y%m%d_%H%M%S.xlsx` (%Y: year, %m: month, %d: day, %H: hour, %M: minute, %S: second). The file contains two sheets: `All` and `Summary`.
 
-The `All` sheet includes the following columns:
+The `Full_report` sheet includes the following columns:
 - Strain: Name of the strain
 - Plate: Plate number ('PM1', 'PM2A', 'PM3B', 'PM4A')
 - Well: Well ID (e.g., A5, C3)
@@ -66,4 +73,6 @@ The `All` sheet includes the following columns:
 - SGR_Pvalue: Paired-sample t-test of SGR between the current well and the A1 well
 - GrowthStatus: For each metric, positive growth (`+`) is assigned when the mean fold change is >= `fc_cutoff` and the p-value is < `pvalue_cutoff`. Otherwise, negative growth ('-') is assigned. The growth status of all three metrics is then combined into a 3-letter string in the order of Endpoint approach, AUC approach, SGR approach. For example, `++-` indicates positive growth determined by the endpoint OD approach and AUC approach, but negative growth determined by the SGR approach.
 
-The `Summary` sheet reformats the `GrowthStatus` column from the `All` sheet to faciliate growth status comparison across strains. It lists only the metabolites where at least one strain shows positive growth as determined by at least one approach.
+The `Comparison_growth_quali` sheet reformats the `GrowthStatus` column from the `Full_report` sheet to faciliate growth status comparison across strains. It lists only the metabolites where at least one strain shows positive growth as determined by at least one approach.
+
+The `Comparison_growth_quant` sheet compares each growth metric between each strain and the reference strain set by arguments. No comparison will be made if the reference strain is not set. Independent sample t-test is used to calculate the p-value.
